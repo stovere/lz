@@ -54,7 +54,7 @@ async def run_health_server() -> None:
 
 async def main() -> None:
 	await asyncio.gather(
-		forwarder2.run(),
+		forwarder.run(),
 		run_health_server(),
 	)
 
@@ -69,6 +69,9 @@ class GroupMediaForwarder:
 		start_message_id: int = 1,
 		caption_json_mode: bool = False,
 		skip_caption_check: bool = False,
+		sleep_enabled: bool = True,
+		sleep_min_seconds: int = 67,
+		sleep_max_seconds: int = 1153,
 		state_file: Path | None = None,
 		white_list_group_1: list[str] | None = None,
 		white_list_group_2: list[str] | None = None,
@@ -79,6 +82,9 @@ class GroupMediaForwarder:
 		self.default_start_message_id = start_message_id
 		self.caption_json_mode = caption_json_mode
 		self.skip_caption_check = skip_caption_check
+		self.sleep_enabled = sleep_enabled
+		self.sleep_min_seconds = max(0, int(sleep_min_seconds))
+		self.sleep_max_seconds = max(0, int(sleep_max_seconds))
 		self.state_file = state_file or Path(__file__).with_name("man_last_message_id.txt")
 		self.white_list_group_1 = white_list_group_1 or []
 		self.white_list_group_2 = white_list_group_2 or []
@@ -363,9 +369,14 @@ class GroupMediaForwarder:
 							)
 						except ChatForwardsRestrictedError:
 							await self._resend_message(client, forward_entity, message, caption_override=formatted_caption)
-					sleep_seconds = random.randint(67, 1153)
-					print(f"[Sleep] id={message.id} 休眠 {sleep_seconds} 秒", flush=True)
-					await asyncio.sleep(sleep_seconds)
+					if self.sleep_enabled:
+						sleep_min_seconds = min(self.sleep_min_seconds, self.sleep_max_seconds)
+						sleep_max_seconds = max(self.sleep_min_seconds, self.sleep_max_seconds)
+						sleep_seconds = random.randint(sleep_min_seconds, sleep_max_seconds)
+						print(f"[Sleep] id={message.id} 休眠 {sleep_seconds} 秒", flush=True)
+						await asyncio.sleep(sleep_seconds)
+					else:
+						print(f"[Sleep] id={message.id} 已关闭休眠", flush=True)
 
 				# 不论是否转发，已检查过的消息都推进游标，避免重复检查旧消息
 				self.write_last_message_id(message.id)
@@ -425,9 +436,12 @@ class GroupMediaForwarder:
 forwarder = GroupMediaForwarder(
 	target_group=-1001907741385,
 	forward_to="ziyuanbudengbot",
-	start_message_id=0,
+	start_message_id=3422698,
 	caption_json_mode=False,
 	skip_caption_check=False,
+	sleep_enabled=False,
+	sleep_min_seconds=0,
+	sleep_max_seconds=1,
 	white_list_group_1=[
 		"时代峰峻","TF家族","佟弋","渣苏感","计铭浩","文铭","铭罕","刘瀚辰","穆祉丞","陈浚铭",
 		"陈思罕","张桂源","朱映宸","杨智岩","严浩翔","沈子航","智恩涵","朱广伦","萌娃","人类幼崽",
@@ -450,6 +464,9 @@ forwarder2 = GroupMediaForwarder(
 	start_message_id=255,
 	caption_json_mode=True,
 	skip_caption_check=True,
+	sleep_enabled=True,
+	sleep_min_seconds=67,
+	sleep_max_seconds=1153,
 	white_list_group_1=[],
 	white_list_group_2=[],
 	black_list=[],
