@@ -1317,7 +1317,7 @@ async def handle_reload(message: Message, state: FSMContext, command: Command = 
 
 @router.message(Command("update_setting"))
 async def handle_update_setting(message: Message, state: FSMContext):
-    SharedConfig.load()
+    SharedConfig.load(True)
     await message.answer(f"✅ 已更新 UPLOADER_BOT_NAME: {SharedConfig.get('uploader_bot_name')}")
 
 
@@ -1438,6 +1438,7 @@ async def handle_set_comment_command(message: Message, state: FSMContext):
     await lz_var.bot.set_my_commands(
         commands=[
             BotCommand(command="start", description="首页菜单"),
+           
             BotCommand(command="s", description="使用搜索"),
             BotCommand(command="search_tag", description="标签筛选"),
             # BotCommand(command="post", description="创建资源夹(一个投稿多个资源)"),
@@ -1451,6 +1452,15 @@ async def handle_set_comment_command(message: Message, state: FSMContext):
         scope=BotCommandScopeAllPrivateChats()
     )
     print("✅ 已设置命令列表", flush=True)
+
+
+@router.message(Command("bootstrap"))
+async def handle_bootstrap_command(message: Message, state: FSMContext):
+    await handle_update_setting(message, state)
+    await handle_reload(message, state)
+    await handle_set_comment_command(message, state)
+    
+    await message.answer("✅ 初始化完成：已执行 /reload , /update_setting 与 /setcommand")
    
 async def handle_search_component(message: Message, state: FSMContext, keyword:str):  
     keyword_id = await db.get_search_keyword_id(keyword)

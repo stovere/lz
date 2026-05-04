@@ -65,6 +65,7 @@ publish_bot_token = SharedConfig.get("publish_bot_token", PUBLISH_BOT_TOKEN)
 my_bot_token = SharedConfig.get("my_bot_token", BOT_TOKEN)
 
 
+
 bot = Bot(token=my_bot_token)
 lz_var.bot = bot
 
@@ -3650,6 +3651,7 @@ async def handle_set_comment_command(message: Message, state: FSMContext):
         commands=[
             # BotCommand(command="s", description="使用搜索"),
             BotCommand(command="start", description="首页菜单"),
+           
             BotCommand(command="post", description="创建资源夹(一个投稿多个资源)"),
             
             # BotCommand(command="sub", description="订阅通知"),
@@ -3662,6 +3664,13 @@ async def handle_set_comment_command(message: Message, state: FSMContext):
         scope=BotCommandScopeAllPrivateChats()
     )
     print("✅ 已设置命令列表", flush=True)
+
+
+@dp.message(F.chat.type == "private", Command("bootstrap"))
+async def handle_bootstrap_command(message: Message, state: FSMContext):
+    await handle_reload(message, state)
+    await handle_set_comment_command(message, state)
+    await message.answer("✅ 初始化完成：已执行 /reload 与 /setcommand")
 
 
 
