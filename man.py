@@ -1,13 +1,15 @@
 import asyncio
 import json
+import os
 import random
 import tempfile
+from contextlib import suppress
 from pathlib import Path
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.errors.rpcerrorlist import ChatForwardsRestrictedError
 
-from man_config import API_HASH, API_ID, SESSION_STRING
+from man_config import API_HASH, API_ID, SESSION_STRING, FORWARDER_RUN_TARGET
 
 
 def _build_client() -> TelegramClient:
@@ -22,6 +24,49 @@ def _build_client() -> TelegramClient:
 	return TelegramClient(raw or "man", api_id, API_HASH)
 
 
+async def _handle_healthcheck(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+	try:
+		await reader.read(1024)
+		body = b"ok"
+		response = (
+			b"HTTP/1.1 200 OK\r\n"
+			b"Content-Type: text/plain; charset=utf-8\r\n"
+			+ f"Content-Length: {len(body)}\r\n".encode("ascii")
+			+ b"Connection: close\r\n\r\n"
+			+ body
+		)
+		writer.write(response)
+		await writer.drain()
+	finally:
+		writer.close()
+		with suppress(Exception):
+			await writer.wait_closed()
+
+
+async def run_health_server() -> None:
+	host = os.getenv("HOST", "0.0.0.0")
+	port = int(os.getenv("PORT", "10000"))
+	server = await asyncio.start_server(_handle_healthcheck, host, port)
+	print(f"HEALTHCHECK server listening on {host}:{port}", flush=True)
+	async with server:
+		await server.serve_forever()
+
+
+async def main() -> None:
+	if FORWARDER_RUN_TARGET in {"1", "forwarder_dy"}:
+		selected_forwarder = forwarder_dy
+		selected_name = "forwarder_dy"
+	else:
+		selected_forwarder = forwarder_th
+		selected_name = "forwarder_th"
+
+	print(f"[Boot] selected forwarder: {selected_name}", flush=True)
+	await asyncio.gather(
+		selected_forwarder.run(),
+		run_health_server(),
+	)
+
+
 class GroupMediaForwarder:
 	"""从指定群组抓取媒体消息并转发到目标。"""
 
@@ -32,6 +77,9 @@ class GroupMediaForwarder:
 		start_message_id: int = 1,
 		caption_json_mode: bool = False,
 		skip_caption_check: bool = False,
+		sleep_enabled: bool = True,
+		sleep_min_seconds: int = 67,
+		sleep_max_seconds: int = 1153,
 		state_file: Path | None = None,
 		white_list_group_1: list[str] | None = None,
 		white_list_group_2: list[str] | None = None,
@@ -42,6 +90,9 @@ class GroupMediaForwarder:
 		self.default_start_message_id = start_message_id
 		self.caption_json_mode = caption_json_mode
 		self.skip_caption_check = skip_caption_check
+		self.sleep_enabled = sleep_enabled
+		self.sleep_min_seconds = max(0, int(sleep_min_seconds))
+		self.sleep_max_seconds = max(0, int(sleep_max_seconds))
 		self.state_file = state_file or Path(__file__).with_name("man_last_message_id.txt")
 		self.white_list_group_1 = white_list_group_1 or []
 		self.white_list_group_2 = white_list_group_2 or []
@@ -288,16 +339,32 @@ class GroupMediaForwarder:
 			):
 				last_message_id = message.id
 				text = self.serialize_message(message).get("text", "")
+				preview_text = (text or "").replace("\n", " ").strip()
+				if len(preview_text) > 60:
+					preview_text = preview_text[:60] + "..."
+				print(
+					f"[Msg] id={message.id} 開始處理 text={preview_text!r}",
+					flush=True,
+				)
+				if not getattr(message, "media", None):
+					print(f"[Skip] id={message.id} 非媒體消息", flush=True)
+					self.write_last_message_id(message.id)
+					print(f"[State] 已寫入 last_message_id={message.id}", flush=True)
+					continue
 
 				if self.skip_caption_check:
 					should_forward = True
 				else:
 					if self.is_blacklisted(text):
+						print(f"[Skip] id={message.id} 命中黑名单", flush=True)
 						continue
 					should_forward = self.classify_text(text) in {"group_1", "group_2"}
+					if not should_forward:
+						print(f"[Skip] id={message.id} 不在白名单分组", flush=True)
 
 				if should_forward:
 					formatted_caption = self._format_caption(message, text)
+					print(f"[Forward] id={message.id} 準備轉發", flush=True)
 
 					if self.caption_json_mode:
 						await self._resend_message(client, forward_entity, message, caption_override=formatted_caption)
@@ -310,10 +377,18 @@ class GroupMediaForwarder:
 							)
 						except ChatForwardsRestrictedError:
 							await self._resend_message(client, forward_entity, message, caption_override=formatted_caption)
-					await asyncio.sleep(random.randint(300, 1200))
+					if self.sleep_enabled:
+						sleep_min_seconds = min(self.sleep_min_seconds, self.sleep_max_seconds)
+						sleep_max_seconds = max(self.sleep_min_seconds, self.sleep_max_seconds)
+						sleep_seconds = random.randint(sleep_min_seconds, sleep_max_seconds)
+						print(f"[Sleep] id={message.id} 休眠 {sleep_seconds} 秒", flush=True)
+						await asyncio.sleep(sleep_seconds)
+					else:
+						print(f"[Sleep] id={message.id} 已关闭休眠", flush=True)
 
 				# 不论是否转发，已检查过的消息都推进游标，避免重复检查旧消息
 				self.write_last_message_id(message.id)
+				print(f"[State] 已寫入 last_message_id={message.id}", flush=True)
 
 			return last_message_id
 		finally:
@@ -366,12 +441,15 @@ class GroupMediaForwarder:
 
 # ── 实例配置 ──────────────────────────────────────────────────
 
-forwarder = GroupMediaForwarder(
+forwarder_dy = GroupMediaForwarder(
 	target_group=-1001907741385,
 	forward_to="ziyuanbudengbot",
-	start_message_id=0,
+	start_message_id=3422698,
 	caption_json_mode=False,
 	skip_caption_check=False,
+	sleep_enabled=False,
+	sleep_min_seconds=0,
+	sleep_max_seconds=1,
 	white_list_group_1=[
 		"时代峰峻","TF家族","佟弋","渣苏感","计铭浩","文铭","铭罕","刘瀚辰","穆祉丞","陈浚铭",
 		"陈思罕","张桂源","朱映宸","杨智岩","严浩翔","沈子航","智恩涵","朱广伦","萌娃","人类幼崽",
@@ -388,16 +466,19 @@ forwarder = GroupMediaForwarder(
 	],
 )
 
-forwarder2 = GroupMediaForwarder(
+forwarder_th = GroupMediaForwarder(
 	target_group=7294369541,
 	forward_to="Tin9HutBot",
-	start_message_id=0,
+	start_message_id=255,
 	caption_json_mode=True,
 	skip_caption_check=True,
+	sleep_enabled=True,
+	sleep_min_seconds=67,
+	sleep_max_seconds=1153,
 	white_list_group_1=[],
 	white_list_group_2=[],
 	black_list=[],
 )
 
 if __name__ == "__main__":
-	asyncio.run(forwarder2.run())
+	asyncio.run(main())

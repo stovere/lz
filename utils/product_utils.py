@@ -234,8 +234,9 @@ async def submit_resource_to_chat_action(content_id: int, bot: Optional[Bot] = N
         fee = tpl_data.get("fee", lz_var.default_point)
 
 
+
         tpl_data["text"] = content
-        tpl_data["button_str"] = f"👀 看看先 - https://t.me/{publish_bot_name}?start=f_{keyword_id}_{content_id_str}"
+        tpl_data["button_str"] = f"👀 看看先 - https://t.me/{publish_bot_name}?start=f_{keyword_id}_{content_id_str} && 📤 我要上传 - https://t.me/{uploader_bot_name}?start=upload"
         tpl_data["bot_name"] = 'luzai4001bot'
         tpl_data["business_type"] = 'xlj'
         tpl_data["content_id"] = tpl_data.get("id")

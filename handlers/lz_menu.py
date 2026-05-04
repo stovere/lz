@@ -2713,6 +2713,8 @@ async def handle_return_after_clt(callback: CallbackQuery, state: FSMContext):
 
 
 async def build_after_choose_collection_button(callback: CallbackQuery, state: FSMContext, content_id: int, fuc_from: str):
+    caption_text = (callback.message.caption or callback.message.text or "") if callback.message else ""
+    reply_markup = callback.message.reply_markup if callback.message else None
 
     if fuc_from == "productinfo":
         data = await state.get_data()
@@ -2720,21 +2722,29 @@ async def build_after_choose_collection_button(callback: CallbackQuery, state: F
         viewer_user_id = int(callback.from_user.id)
         product_info = await _build_product_info(content_id=content_id, search_key_index=search_key_index, state=state, message=callback.message, viewer_user_id=viewer_user_id)
 
-        reply_markup=product_info['reply_markup']
+        if product_info and product_info.get('ok'):
+            caption_text = product_info.get('caption') or caption_text
+            reply_markup = product_info.get('reply_markup') or reply_markup
        
     elif fuc_from == "product":
         
         record = await db.search_sora_content_by_id(content_id)
-        source_id = record.get("source_id")
-        file_type = record.get("file_type")
-        ret_content = record.get("content") 
+        source_id = record.get("source_id") if record else None
+        file_type = record.get("file_type") if record else None
+        ret_content = record.get("content") if record else ""
+        caption_text = ret_content or caption_text
         reply_markup = await build_after_redeem_buttons(content_id,source_id,file_type,ret_content)
         
 
 
 
     try:
-        await callback.message.edit_reply_markup(reply_markup=reply_markup)
+        await _edit_caption_or_text(
+            callback.message,
+            text=caption_text,
+            reply_markup=reply_markup,
+            state=state,
+        )
     except Exception as e:
         print(f"❌ 刷新加入资源橱窗页失败: {e}", flush=True)
 
@@ -5088,6 +5098,7 @@ async def handle_redeem_condition_answer(message: Message, state: FSMContext):
         await message.answer("⚠️ 系统忙碌，请稍后再试。")
 
 async def _build_mediagroup_box(page,source_id,content_id,material_status):
+    uploader_bot_name = SharedConfig.get("uploader_bot_username", UPLOADER_BOT_NAME)
    
     if material_status:
         total_quantity = material_status.get("total", 0)
