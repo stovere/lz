@@ -30,3 +30,5 @@ watermark_verify_output/
 input.png
 man_last_message_id.txt
 cache/
+ztpan/services/file_service.py
+set_permissions_-1002142026557.json
