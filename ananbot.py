@@ -3668,9 +3668,10 @@ async def handle_set_comment_command(message: Message, state: FSMContext):
 
 @dp.message(F.chat.type == "private", Command("bootstrap"))
 async def handle_bootstrap_command(message: Message, state: FSMContext):
+    await handle_update_setting(message, state)
     await handle_reload(message, state)
     await handle_set_comment_command(message, state)
-    await message.answer("✅ 初始化完成：已执行 /reload 与 /setcommand")
+    await message.answer("✅ 初始化完成：已执行 /reload , /update_setting 与 /setcommand")
 
 
 
